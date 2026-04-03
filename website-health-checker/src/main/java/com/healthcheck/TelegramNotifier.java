@@ -58,7 +58,7 @@ public class TelegramNotifier {
 
         // 파트너 표
         sb.append("```\n");
-        sb.append("파트너           IN    OUT\n");
+        sb.append("혁신채널명       IN    OUT\n");
         sb.append("---------------+-----+-----\n");
         int okCount = 0, warnCount = 0, downCount = 0;
         for (PartnerCheckResult pr : partnerResults) {
@@ -87,10 +87,10 @@ public class TelegramNotifier {
 
         // 자사 사이트 표
         sb.append("```\n");
-        sb.append("자사 사이트              상태  SSL\n");
-        sb.append("------------------------+----+------\n");
+        sb.append("자사 사이트                        상태  SSL\n");
+        sb.append("----------------------------------+----+------\n");
         for (CheckResult r : ownSiteResults) {
-            String shortName = padRight(shortenSiteName(r.getUrl()), 24);
+            String shortName = padRight(shortenSiteName(r.getUrl()), 34);
             String status = tableStatus(r);
             String ssl = r.getSslDaysRemaining() >= 0 ? r.getSslDaysRemaining() + "일" : " - ";
             sb.append(shortName).append("| ").append(status).append(" | ").append(ssl).append("\n");
@@ -185,15 +185,10 @@ public class TelegramNotifier {
         return order[a.ordinal()] >= order[b.ordinal()] ? a : b;
     }
 
-    /** 자사 사이트 URL을 짧은 이름으로 */
+    /** 자사 사이트 URL에서 호스트명 추출 */
     private String shortenSiteName(String url) {
-        // https://www.sangsanginplussb.com -> www
-        // https://appreal.sangsanginplussb.com -> appreal
-        // https://m.sangsanginplussb.com -> m
         try {
-            String host = url.replaceFirst("https?://", "").split("/")[0];
-            String sub = host.split("\\.")[0];
-            return sub;
+            return url.replaceFirst("https?://", "").split("/")[0];
         } catch (Exception e) {
             return url;
         }
