@@ -43,30 +43,25 @@ public class Main {
         int intervalMinutes = config.getCheckIntervalMinutes();
 
         log.info("파트너 수: {}개", partners.size());
-        log.info("자사 사이트 수 (SSL 전용): {}개", ownSites.size());
+        log.info("자사 사이트 수: {}개", ownSites.size());
         log.info("체크 주기: {}분", intervalMinutes);
 
-        // 시작 알림
         notifier.sendMessage("🚀 *웹사이트 헬스체크 시작*\n파트너: " + partners.size() + "개\n주기: " + intervalMinutes + "분");
 
         ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
 
-        // 1. 파트너 인바운드/아웃바운드 체크 (1분 주기)
+        // 1. 파트너 인바운드/아웃바운드 체크 (1분 주기) - 이상 시 즉시 알림
         Runnable checkTask = () -> {
             log.info("--- 파트너 헬스체크 시작 ---");
             for (Partner partner : partners) {
                 try {
                     PartnerCheckResult result = new PartnerCheckResult(partner);
-
                     if (partner.hasInbound()) {
-                        CheckResult inbound = checker.checkHttp(partner.getInboundUrl());
-                        result.setInboundResult(inbound);
+                        result.setInboundResult(checker.checkHttp(partner.getInboundUrl()));
                     }
                     if (partner.hasOutbound()) {
-                        CheckResult outbound = checker.checkHttp(partner.getOutboundUrl());
-                        result.setOutboundResult(outbound);
+                        result.setOutboundResult(checker.checkHttp(partner.getOutboundUrl()));
                     }
-
                     notifier.notifyIfNeeded(result);
                 } catch (Exception e) {
                     log.error("체크 중 예외 발생 [{}]: {}", partner.getName(), e.getMessage());
@@ -77,21 +72,39 @@ public class Main {
 
         scheduler.scheduleAtFixedRate(checkTask, 0, intervalMinutes, TimeUnit.MINUTES);
 
-        // 2. 매일 09:00 SSL 현황 리포트 (자사 사이트만)
-        Runnable sslReportTask = () -> {
-            log.info("--- SSL 일일 리포트 전송 ---");
-            List<CheckResult> results = new ArrayList<CheckResult>();
-            for (String url : ownSites) {
+        // 2. 매일 09:00 전체 현황 일일 요약 전송
+        Runnable dailySummaryTask = () -> {
+            log.info("--- 일일 요약 전송 시작 ---");
+
+            // 파트너 전체 체크
+            List<PartnerCheckResult> partnerResults = new ArrayList<PartnerCheckResult>();
+            for (Partner partner : partners) {
                 try {
-                    CheckResult result = checker.checkFull(url);
-                    results.add(result);
+                    PartnerCheckResult result = new PartnerCheckResult(partner);
+                    if (partner.hasInbound()) {
+                        result.setInboundResult(checker.checkHttp(partner.getInboundUrl()));
+                    }
+                    if (partner.hasOutbound()) {
+                        result.setOutboundResult(checker.checkHttp(partner.getOutboundUrl()));
+                    }
+                    partnerResults.add(result);
                 } catch (Exception e) {
-                    log.error("SSL 리포트 체크 오류 [{}]: {}", url, e.getMessage());
+                    log.error("일일 요약 파트너 체크 오류 [{}]: {}", partner.getName(), e.getMessage());
                 }
             }
-            if (!results.isEmpty()) {
-                notifier.sendSslReport(results);
+
+            // 자사 사이트 체크 (HTTP + SSL)
+            List<CheckResult> ownSiteResults = new ArrayList<CheckResult>();
+            for (String url : ownSites) {
+                try {
+                    ownSiteResults.add(checker.checkFull(url));
+                } catch (Exception e) {
+                    log.error("일일 요약 자사 사이트 체크 오류 [{}]: {}", url, e.getMessage());
+                }
             }
+
+            notifier.sendDailySummary(partnerResults, ownSiteResults);
+            log.info("--- 일일 요약 전송 완료 ---");
         };
 
         // 다음 09:00까지 남은 시간 계산
@@ -102,8 +115,8 @@ public class Main {
         }
         long initialDelay = ChronoUnit.MINUTES.between(now, nextNine);
 
-        scheduler.scheduleAtFixedRate(sslReportTask, initialDelay, 24 * 60, TimeUnit.MINUTES);
-        log.info("SSL 일일 리포트 예약: {}분 후 첫 전송 (매일 09:00)", initialDelay);
+        scheduler.scheduleAtFixedRate(dailySummaryTask, initialDelay, 24 * 60, TimeUnit.MINUTES);
+        log.info("일일 요약 예약: {}분 후 첫 전송 (매일 09:00)", initialDelay);
 
         // 종료 훅
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
