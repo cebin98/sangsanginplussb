@@ -45,25 +45,39 @@ public class WebsiteChecker {
     }
 
     /**
-     * 웹사이트 종합 체크 수행
+     * HTTP 상태 + 응답시간만 체크 (5분 주기용, SSL 제외)
      */
-    public CheckResult check(String url) {
+    public CheckResult checkHttp(String url) {
         CheckResult result = new CheckResult(url);
-        log.info("체크 시작: {}", url);
+        log.info("HTTP 체크: {}", url);
 
-        // 1. HTTP 상태 코드 + 응답 시간 체크
+        checkHttp(url, result);
+        evaluateStatus(result);
+
+        log.info("HTTP 체크 완료: {} -> {} ({}ms, HTTP {})",
+                url, result.getStatus(), result.getResponseTimeMs(), result.getHttpStatusCode());
+
+        return result;
+    }
+
+    /**
+     * HTTP + SSL 종합 체크 (일일 09:00 리포트용)
+     */
+    public CheckResult checkFull(String url) {
+        CheckResult result = new CheckResult(url);
+        log.info("전체 체크: {}", url);
+
         checkHttp(url, result);
 
-        // 2. SSL 인증서 체크 (HTTPS인 경우)
         if (url.toLowerCase().startsWith("https://")) {
             checkSsl(url, result);
         }
 
-        // 3. 종합 상태 결정
         evaluateStatus(result);
 
-        log.info("체크 완료: {} -> {} ({}ms, HTTP {})",
-                url, result.getStatus(), result.getResponseTimeMs(), result.getHttpStatusCode());
+        log.info("전체 체크 완료: {} -> {} ({}ms, HTTP {}, SSL {}일)",
+                url, result.getStatus(), result.getResponseTimeMs(),
+                result.getHttpStatusCode(), result.getSslDaysRemaining());
 
         return result;
     }

@@ -50,30 +50,30 @@ public class Main {
 
         ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
 
-        // 1. 이상 감지 체크 (5분 주기)
+        // 1. HTTP 상태/응답시간 체크 (5분 주기, SSL 제외)
         Runnable checkTask = () -> {
-            log.info("--- 헬스체크 라운드 시작 ---");
+            log.info("--- HTTP 헬스체크 시작 ---");
             for (String url : websites) {
                 try {
-                    CheckResult result = checker.check(url);
+                    CheckResult result = checker.checkHttp(url);
                     // 이상 감지 시에만 텔레그램 알림 전송
                     notifier.notifyIfNeeded(result);
                 } catch (Exception e) {
                     log.error("체크 중 예외 발생 [{}]: {}", url, e.getMessage());
                 }
             }
-            log.info("--- 헬스체크 라운드 완료 ---");
+            log.info("--- HTTP 헬스체크 완료 ---");
         };
 
         scheduler.scheduleAtFixedRate(checkTask, 0, intervalMinutes, TimeUnit.MINUTES);
 
-        // 2. 매일 09:00 SSL 현황 리포트
+        // 2. 매일 09:00 SSL 현황 리포트 (HTTP + SSL 전체 체크)
         Runnable sslReportTask = () -> {
             log.info("--- SSL 일일 리포트 전송 ---");
             List<CheckResult> results = new ArrayList<>();
             for (String url : websites) {
                 try {
-                    results.add(checker.check(url));
+                    results.add(checker.checkFull(url));
                 } catch (Exception e) {
                     log.error("SSL 리포트 체크 오류 [{}]: {}", url, e.getMessage());
                 }
