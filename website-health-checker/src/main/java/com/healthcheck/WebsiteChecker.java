@@ -151,10 +151,11 @@ public class WebsiteChecker {
             result.setHttpStatusCode(response.code());
             result.setResponseTimeMs(responseTime);
 
-            // 2xx, 3xx, 404(API Gateway 정상응답)는 연결 성공으로 처리
+            // 2xx, 3xx, 403/404(API Gateway 정상응답)는 연결 성공으로 처리
             boolean isNormal = response.isSuccessful()
                     || response.code() == 301
                     || response.code() == 302
+                    || response.code() == 403
                     || response.code() == 404;
             if (!isNormal) {
                 result.setStatus(CheckResult.Status.DOWN);
