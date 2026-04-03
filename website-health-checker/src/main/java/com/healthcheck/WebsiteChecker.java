@@ -159,9 +159,16 @@ public class WebsiteChecker {
         } catch (IOException e) {
             long responseTime = System.currentTimeMillis() - startTime;
             result.setResponseTimeMs(responseTime);
-            result.setStatus(CheckResult.Status.DOWN);
-            result.setErrorMessage("연결 실패: " + e.getMessage());
-            log.warn("HTTP 체크 실패 [{}]: {}", url, e.getMessage());
+            String msg = e.getMessage();
+            // "unexpected end of stream" = TCP 연결 성공 후 HTTP 응답 없이 종료
+            // 인바운드 포트는 파트너 전용 프로토콜로 동작하므로 연결 가능 = 정상
+            if (msg != null && msg.contains("unexpected end of stream")) {
+                log.info("HTTP 체크 [{}]: 연결 가능 (포트 열림, HTTP 응답 없음)", url);
+            } else {
+                result.setStatus(CheckResult.Status.DOWN);
+                result.setErrorMessage("연결 실패: " + msg);
+                log.warn("HTTP 체크 실패 [{}]: {}", url, msg);
+            }
         }
     }
 
