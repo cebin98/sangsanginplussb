@@ -144,6 +144,42 @@ public class TelegramNotifier {
     }
 
     /**
+     * 매일 09:00 SSL 인증서 현황 리포트 전송
+     */
+    public void sendSslReport(java.util.List<CheckResult> results) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("📋 *일일 SSL 현황 리포트*\n");
+        sb.append("🕐 ").append(java.time.LocalDateTime.now().format(FORMATTER)).append("\n");
+        sb.append("━━━━━━━━━━━━━━━━━━━━\n");
+
+        for (CheckResult result : results) {
+            int days = result.getSslDaysRemaining();
+            String sslEmoji;
+            String sslText;
+
+            if (days < 0) {
+                sslEmoji = "❓";
+                sslText = "확인 불가";
+            } else if (days <= 7) {
+                sslEmoji = "🔴";
+                sslText = days + "일 남음 (긴급 갱신 필요!)";
+            } else if (days <= 30) {
+                sslEmoji = "⚠️";
+                sslText = days + "일 남음 (갱신 필요)";
+            } else {
+                sslEmoji = "🔒";
+                sslText = days + "일 남음";
+            }
+
+            sb.append(sslEmoji).append(" ").append(result.getUrl()).append("\n");
+            sb.append("   └ SSL ").append(sslText).append("\n");
+        }
+
+        sendMessage(sb.toString());
+        log.info("SSL 일일 리포트 전송 완료");
+    }
+
+    /**
      * 텔레그램 API로 메시지 전송
      */
     public void sendMessage(String text) {

@@ -3,6 +3,10 @@ package com.healthcheck;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -44,12 +48,11 @@ public class Main {
         // 시작 알림
         notifier.sendMessage("🚀 *웹사이트 헬스체크 시작*\n체크 대상: " + websites.size() + "개 사이트\n주기: " + intervalMinutes + "분");
 
-        // 스케줄러 설정
-        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
 
+        // 1. 이상 감지 체크 (5분 주기)
         Runnable checkTask = () -> {
             log.info("--- 헬스체크 라운드 시작 ---");
-
             for (String url : websites) {
                 try {
                     CheckResult result = checker.check(url);
@@ -59,17 +62,35 @@ public class Main {
                     log.error("체크 중 예외 발생 [{}]: {}", url, e.getMessage());
                 }
             }
-
             log.info("--- 헬스체크 라운드 완료 ---");
         };
 
-        // 즉시 첫 번째 실행 후 주기적으로 실행
-        scheduler.scheduleAtFixedRate(
-                checkTask,
-                0,
-                intervalMinutes,
-                TimeUnit.MINUTES
-        );
+        scheduler.scheduleAtFixedRate(checkTask, 0, intervalMinutes, TimeUnit.MINUTES);
+
+        // 2. 매일 09:00 SSL 현황 리포트
+        Runnable sslReportTask = () -> {
+            log.info("--- SSL 일일 리포트 전송 ---");
+            List<CheckResult> results = new ArrayList<>();
+            for (String url : websites) {
+                try {
+                    results.add(checker.check(url));
+                } catch (Exception e) {
+                    log.error("SSL 리포트 체크 오류 [{}]: {}", url, e.getMessage());
+                }
+            }
+            notifier.sendSslReport(results);
+        };
+
+        // 다음 09:00까지 남은 시간 계산
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime nextNine = now.toLocalDate().atTime(9, 0);
+        if (!now.isBefore(nextNine)) {
+            nextNine = nextNine.plusDays(1);
+        }
+        long initialDelay = ChronoUnit.MINUTES.between(now, nextNine);
+
+        scheduler.scheduleAtFixedRate(sslReportTask, initialDelay, 24 * 60, TimeUnit.MINUTES);
+        log.info("SSL 일일 리포트 예약: {} 분 후 첫 전송 (매일 09:00)", initialDelay);
 
         // 종료 훅
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
