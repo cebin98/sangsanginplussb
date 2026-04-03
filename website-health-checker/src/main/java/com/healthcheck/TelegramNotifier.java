@@ -95,8 +95,7 @@ public class TelegramNotifier {
         }
 
         sb.append("━━━━━━━━━━━━━━━━━━━━\n");
-        sb.append("🏢 사이트: ").append(result.getDisplayName()).append("\n");
-        sb.append("🌐 URL: ").append(result.getUrl()).append("\n");
+        sb.append("🏢 사이트: ").append(result.getUrl()).append("\n");
         sb.append("🕐 시각: ").append(result.getCheckedAt().format(FORMATTER)).append("\n");
 
         if (result.getHttpStatusCode() > 0) {
