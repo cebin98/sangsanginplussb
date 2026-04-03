@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -41,8 +42,30 @@ public class AppConfig {
         return getRequired("telegram.chat.id");
     }
 
-    public List<String> getWebsites() {
-        String raw = getRequired("websites");
+    /**
+     * 파트너 목록 반환
+     */
+    public List<Partner> getPartners() {
+        String raw = props.getProperty("partners", "");
+        List<Partner> partners = new ArrayList<Partner>();
+        for (String id : raw.split(",")) {
+            id = id.trim();
+            if (id.isEmpty()) continue;
+            String name = props.getProperty("partner." + id + ".name", id);
+            String inbound = props.getProperty("partner." + id + ".inbound", "").trim();
+            String outbound = props.getProperty("partner." + id + ".outbound", "").trim();
+            partners.add(new Partner(id, name,
+                    inbound.isEmpty() ? null : inbound,
+                    outbound.isEmpty() ? null : outbound));
+        }
+        return partners;
+    }
+
+    /**
+     * 자사 사이트 목록 반환 (SSL 모니터링용)
+     */
+    public List<String> getOwnSites() {
+        String raw = props.getProperty("own.sites", "");
         return Arrays.stream(raw.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
@@ -50,7 +73,7 @@ public class AppConfig {
     }
 
     public int getCheckIntervalMinutes() {
-        return Integer.parseInt(props.getProperty("check.interval.minutes", "5"));
+        return Integer.parseInt(props.getProperty("check.interval.minutes", "1"));
     }
 
     public long getResponseTimeWarningMs() {
@@ -85,20 +108,6 @@ public class AppConfig {
         for (String key : props.stringPropertyNames()) {
             if (key.startsWith("dns.")) {
                 String host = key.substring("dns.".length());
-                map.put(host, props.getProperty(key).trim());
-            }
-        }
-        return map;
-    }
-
-    /**
-     * 사이트 한글명 매핑 반환 (key: 호스트, value: 한글명)
-     */
-    public Map<String, String> getSiteNameMap() {
-        Map<String, String> map = new HashMap<String, String>();
-        for (String key : props.stringPropertyNames()) {
-            if (key.startsWith("site.name.")) {
-                String host = key.substring("site.name.".length());
                 map.put(host, props.getProperty(key).trim());
             }
         }

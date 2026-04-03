@@ -10,15 +10,11 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
  * 텔레그램 Bot API를 통해 알림 메시지를 전송하는 클래스
- *
- * 사용법:
- *   1. @BotFather 에서 봇 생성 후 토큰 발급
- *   2. 봇과 대화 시작 후 chat id 확인:
- *      https://api.telegram.org/bot<TOKEN>/getUpdates
  */
 public class TelegramNotifier {
 
@@ -40,51 +36,49 @@ public class TelegramNotifier {
     }
 
     /**
-     * 체크 결과를 텔레그램으로 전송 (알림이 필요한 경우에만)
+     * 파트너 체크 결과를 텔레그램으로 전송 (이상이 있는 경우에만)
      */
-    public void notifyIfNeeded(CheckResult result) {
+    public void notifyIfNeeded(PartnerCheckResult result) {
         if (!result.isAlertNeeded()) {
             return;
         }
-        String message = buildAlertMessage(result);
+        String message = buildPartnerAlertMessage(result);
         sendMessage(message);
     }
 
     /**
-     * 체크 요약 리포트를 텔레그램으로 전송
+     * 파트너 인바운드/아웃바운드 알림 메시지 빌드
+     *
+     * 예시:
+     * 🚨 연결 이상 감지!
+     * 🕐 2026-04-03 14:32:10
+     * ━━━━━━━━━━━━━━━━━━━━
+     * 🏢 카카오뱅크
+     *
+     * 📤 아웃바운드: ❌ 다운
+     *    https://loan-partner.kakaobank.io
+     *    오류: Connection timeout
+     *
+     * 📥 인바운드: ✅ 정상 (218ms)
      */
-    public void sendReport(java.util.List<CheckResult> results) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("📊 *웹사이트 헬스체크 리포트*\n");
-        sb.append("🕐 ").append(java.time.LocalDateTime.now().format(FORMATTER)).append("\n");
-        sb.append("━━━━━━━━━━━━━━━━━━━━\n\n");
+    private String buildPartnerAlertMessage(PartnerCheckResult partnerResult) {
+        CheckResult inbound = partnerResult.getInboundResult();
+        CheckResult outbound = partnerResult.getOutboundResult();
 
-        long okCount = results.stream().filter(r -> r.getStatus() == CheckResult.Status.OK).count();
-        long warnCount = results.stream().filter(r -> r.getStatus() == CheckResult.Status.WARNING).count();
-        long critCount = results.stream().filter(r -> r.getStatus() == CheckResult.Status.CRITICAL).count();
-        long downCount = results.stream().filter(r -> r.getStatus() == CheckResult.Status.DOWN).count();
-
-        sb.append("✅ 정상: ").append(okCount).append("개  ");
-        sb.append("⚠️ 경고: ").append(warnCount).append("개  ");
-        sb.append("🔴 위험: ").append(critCount).append("개  ");
-        sb.append("💀 다운: ").append(downCount).append("개\n\n");
-
-        for (CheckResult result : results) {
-            sb.append(buildResultLine(result)).append("\n");
+        // 전체 심각도 결정
+        CheckResult.Status worstStatus = CheckResult.Status.OK;
+        if (inbound != null && inbound.isAlertNeeded()) {
+            worstStatus = worse(worstStatus, inbound.getStatus());
+        }
+        if (outbound != null && outbound.isAlertNeeded()) {
+            worstStatus = worse(worstStatus, outbound.getStatus());
         }
 
-        sendMessage(sb.toString());
-    }
-
-    /**
-     * 단일 알림 메시지 빌드
-     */
-    private String buildAlertMessage(CheckResult result) {
         StringBuilder sb = new StringBuilder();
 
-        switch (result.getStatus()) {
+        switch (worstStatus) {
             case DOWN:
-                sb.append("🚨 *사이트 다운 감지!*\n");
+                sb.append("🚨 *연결 이상 감지!*\n");
                 break;
             case CRITICAL:
                 sb.append("🔴 *위험 상태 감지!*\n");
@@ -92,61 +86,74 @@ public class TelegramNotifier {
             case WARNING:
                 sb.append("⚠️ *경고 상태 감지!*\n");
                 break;
+            default:
+                sb.append("ℹ️ *상태 변경*\n");
+                break;
         }
 
+        sb.append("🕐 ").append(java.time.LocalDateTime.now().format(FORMATTER)).append("\n");
         sb.append("━━━━━━━━━━━━━━━━━━━━\n");
-        sb.append("🏢 사이트: ").append(result.getUrl()).append("\n");
-        sb.append("🕐 시각: ").append(result.getCheckedAt().format(FORMATTER)).append("\n");
+        sb.append("🏢 *").append(partnerResult.getPartner().getName()).append("*\n");
 
-        if (result.getHttpStatusCode() > 0) {
-            sb.append("📋 HTTP: ").append(result.getHttpStatusCode()).append("\n");
+        // 아웃바운드
+        if (outbound != null) {
+            sb.append("\n📤 아웃바운드: ").append(statusLine(outbound)).append("\n");
+            sb.append("   ").append(outbound.getUrl()).append("\n");
+            if (outbound.getErrorMessage() != null) {
+                sb.append("   오류: ").append(outbound.getErrorMessage()).append("\n");
+            }
         }
-        if (result.getResponseTimeMs() >= 0) {
-            sb.append("⏱️ 응답: ").append(result.getResponseTimeMs()).append("ms\n");
-        }
-        if (result.getSslDaysRemaining() >= 0) {
-            sb.append("🔒 SSL: ").append(result.getSslDaysRemaining()).append("일 남음\n");
-        } else if (result.getSslDaysRemaining() == -2) {
-            sb.append("🔒 SSL: 인증서 오류\n");
-        }
-        if (result.getErrorMessage() != null) {
-            sb.append("❌ 오류: ").append(result.getErrorMessage()).append("\n");
+
+        // 인바운드
+        if (inbound != null) {
+            sb.append("\n📥 인바운드: ").append(statusLine(inbound)).append("\n");
+            sb.append("   ").append(inbound.getUrl()).append("\n");
+            if (inbound.getErrorMessage() != null) {
+                sb.append("   오류: ").append(inbound.getErrorMessage()).append("\n");
+            }
         }
 
         return sb.toString();
     }
 
-    private String buildResultLine(CheckResult result) {
-        StringBuilder sb = new StringBuilder();
-        String emoji;
+    /**
+     * CheckResult 한 줄 요약 (예: ✅ 정상 (218ms) 또는 ❌ 다운)
+     */
+    private String statusLine(CheckResult result) {
         switch (result.getStatus()) {
-            case OK:       emoji = "✅"; break;
-            case WARNING:  emoji = "⚠️"; break;
-            case CRITICAL: emoji = "🔴"; break;
-            case DOWN:     emoji = "💀"; break;
-            default:       emoji = "❓"; break;
+            case OK:
+                StringBuilder ok = new StringBuilder("✅ 정상");
+                if (result.getResponseTimeMs() >= 0) {
+                    ok.append(" (").append(result.getResponseTimeMs()).append("ms)");
+                }
+                return ok.toString();
+            case WARNING:
+                return "⚠️ 경고 (" + result.getResponseTimeMs() + "ms)";
+            case CRITICAL:
+                return "🔴 위험 (" + result.getResponseTimeMs() + "ms)";
+            case DOWN:
+                return "❌ 다운";
+            default:
+                return "❓ 알 수 없음";
         }
+    }
 
-        sb.append(emoji).append(" ").append(result.getDisplayName());
-        if (result.getResponseTimeMs() >= 0) {
-            sb.append(" (").append(result.getResponseTimeMs()).append("ms)");
-        }
-        if (result.getHttpStatusCode() > 0) {
-            sb.append(" HTTP ").append(result.getHttpStatusCode());
-        }
-        if (result.getSslDaysRemaining() >= 0) {
-            sb.append(" | SSL ").append(result.getSslDaysRemaining()).append("일");
-        }
-        if (result.getErrorMessage() != null) {
-            sb.append("\n  └ ").append(result.getErrorMessage());
-        }
-        return sb.toString();
+    /**
+     * 두 상태 중 더 심각한 것을 반환
+     */
+    private CheckResult.Status worse(CheckResult.Status a, CheckResult.Status b) {
+        int[] order = new int[CheckResult.Status.values().length];
+        order[CheckResult.Status.OK.ordinal()] = 0;
+        order[CheckResult.Status.WARNING.ordinal()] = 1;
+        order[CheckResult.Status.CRITICAL.ordinal()] = 2;
+        order[CheckResult.Status.DOWN.ordinal()] = 3;
+        return order[a.ordinal()] >= order[b.ordinal()] ? a : b;
     }
 
     /**
      * 매일 09:00 SSL 인증서 현황 리포트 전송
      */
-    public void sendSslReport(java.util.List<CheckResult> results) {
+    public void sendSslReport(List<CheckResult> results) {
         StringBuilder sb = new StringBuilder();
         sb.append("📋 *일일 SSL 현황 리포트*\n");
         sb.append("🕐 ").append(java.time.LocalDateTime.now().format(FORMATTER)).append("\n");
