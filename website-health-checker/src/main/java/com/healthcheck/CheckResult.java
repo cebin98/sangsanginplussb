@@ -15,6 +15,7 @@ public class CheckResult {
     }
 
     private final String url;
+    private String displayName; // 한글명 (없으면 url 사용)
     private final LocalDateTime checkedAt;
     private Status status;
     private int httpStatusCode;
@@ -24,6 +25,7 @@ public class CheckResult {
 
     public CheckResult(String url) {
         this.url = url;
+        this.displayName = url;
         this.checkedAt = LocalDateTime.now();
         this.status = Status.OK;
         this.httpStatusCode = -1;
@@ -69,6 +71,8 @@ public class CheckResult {
 
     // Getters & Setters
     public String getUrl() { return url; }
+    public String getDisplayName() { return displayName; }
+    public void setDisplayName(String displayName) { this.displayName = displayName; }
     public LocalDateTime getCheckedAt() { return checkedAt; }
     public Status getStatus() { return status; }
     public void setStatus(Status status) { this.status = status; }

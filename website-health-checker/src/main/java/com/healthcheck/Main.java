@@ -3,10 +3,12 @@ package com.healthcheck;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.URL;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -39,6 +41,7 @@ public class Main {
         TelegramNotifier notifier = new TelegramNotifier(config);
 
         List<String> websites = config.getWebsites();
+        final Map<String, String> siteNames = config.getSiteNameMap();
         int intervalMinutes = config.getCheckIntervalMinutes();
 
         log.info("체크 대상: {} 개 사이트", websites.size());
@@ -50,13 +53,13 @@ public class Main {
 
         ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
 
-        // 1. HTTP 상태/응답시간 체크 (5분 주기, SSL 제외)
+        // 1. HTTP 상태/응답시간 체크 (1분 주기, SSL 제외)
         Runnable checkTask = () -> {
             log.info("--- HTTP 헬스체크 시작 ---");
             for (String url : websites) {
                 try {
                     CheckResult result = checker.checkHttp(url);
-                    // 이상 감지 시에만 텔레그램 알림 전송
+                    result.setDisplayName(resolveDisplayName(url, siteNames));
                     notifier.notifyIfNeeded(result);
                 } catch (Exception e) {
                     log.error("체크 중 예외 발생 [{}]: {}", url, e.getMessage());
@@ -70,10 +73,12 @@ public class Main {
         // 2. 매일 09:00 SSL 현황 리포트 (HTTP + SSL 전체 체크)
         Runnable sslReportTask = () -> {
             log.info("--- SSL 일일 리포트 전송 ---");
-            List<CheckResult> results = new ArrayList<>();
+            List<CheckResult> results = new ArrayList<CheckResult>();
             for (String url : websites) {
                 try {
-                    results.add(checker.checkFull(url));
+                    CheckResult result = checker.checkFull(url);
+                    result.setDisplayName(resolveDisplayName(url, siteNames));
+                    results.add(result);
                 } catch (Exception e) {
                     log.error("SSL 리포트 체크 오류 [{}]: {}", url, e.getMessage());
                 }
@@ -107,5 +112,20 @@ public class Main {
         }));
 
         log.info("헬스체커 실행 중... (종료: Ctrl+C)");
+    }
+
+    /**
+     * URL에서 호스트를 추출하여 한글명 조회
+     */
+    private static String resolveDisplayName(String url, Map<String, String> siteNames) {
+        try {
+            String host = new URL(url).getHost();
+            if (siteNames.containsKey(host)) {
+                return siteNames.get(host);
+            }
+        } catch (Exception e) {
+            // 파싱 실패 시 URL 그대로 사용
+        }
+        return url;
     }
 }

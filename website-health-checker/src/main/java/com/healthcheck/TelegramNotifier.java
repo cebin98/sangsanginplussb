@@ -95,6 +95,7 @@ public class TelegramNotifier {
         }
 
         sb.append("━━━━━━━━━━━━━━━━━━━━\n");
+        sb.append("🏢 사이트: ").append(result.getDisplayName()).append("\n");
         sb.append("🌐 URL: ").append(result.getUrl()).append("\n");
         sb.append("🕐 시각: ").append(result.getCheckedAt().format(FORMATTER)).append("\n");
 
@@ -127,7 +128,7 @@ public class TelegramNotifier {
             default:       emoji = "❓"; break;
         }
 
-        sb.append(emoji).append(" ").append(result.getUrl());
+        sb.append(emoji).append(" ").append(result.getDisplayName());
         if (result.getResponseTimeMs() >= 0) {
             sb.append(" (").append(result.getResponseTimeMs()).append("ms)");
         }
@@ -171,7 +172,7 @@ public class TelegramNotifier {
                 sslText = days + "일 남음";
             }
 
-            sb.append(sslEmoji).append(" ").append(result.getUrl()).append("\n");
+            sb.append(sslEmoji).append(" ").append(result.getDisplayName()).append("\n");
             sb.append("   └ SSL ").append(sslText).append("\n");
         }
 

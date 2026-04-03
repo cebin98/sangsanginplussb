@@ -6,7 +6,9 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.stream.Collectors;
 
@@ -72,6 +74,20 @@ public class AppConfig {
 
     public int getHttpReadTimeoutSeconds() {
         return Integer.parseInt(props.getProperty("http.read.timeout.seconds", "15"));
+    }
+
+    /**
+     * 사이트 한글명 매핑 반환 (key: 호스트, value: 한글명)
+     */
+    public Map<String, String> getSiteNameMap() {
+        Map<String, String> map = new HashMap<String, String>();
+        for (String key : props.stringPropertyNames()) {
+            if (key.startsWith("site.name.")) {
+                String host = key.substring("site.name.".length());
+                map.put(host, props.getProperty(key).trim());
+            }
+        }
+        return map;
     }
 
     private String getRequired(String key) {
