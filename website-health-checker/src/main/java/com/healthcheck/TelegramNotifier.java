@@ -171,7 +171,7 @@ public class TelegramNotifier {
                 sslText = days + "일 남음";
             }
 
-            sb.append(sslEmoji).append(" ").append(result.getDisplayName()).append("\n");
+            sb.append(sslEmoji).append(" ").append(result.getUrl()).append("\n");
             sb.append("   └ SSL ").append(sslText).append("\n");
         }
 
