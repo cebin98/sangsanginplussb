@@ -70,11 +70,12 @@ public class Main {
 
         scheduler.scheduleAtFixedRate(checkTask, 0, intervalMinutes, TimeUnit.MINUTES);
 
-        // 2. 매일 09:00 SSL 현황 리포트 (HTTP + SSL 전체 체크)
+        // 2. 매일 09:00 SSL 현황 리포트 (sangsanginplussb.com 도메인만)
         Runnable sslReportTask = () -> {
             log.info("--- SSL 일일 리포트 전송 ---");
             List<CheckResult> results = new ArrayList<CheckResult>();
             for (String url : websites) {
+                if (!url.contains("sangsanginplussb.com")) continue;
                 try {
                     CheckResult result = checker.checkFull(url);
                     result.setDisplayName(resolveDisplayName(url, siteNames));
