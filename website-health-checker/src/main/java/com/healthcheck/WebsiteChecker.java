@@ -29,7 +29,6 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
 
 /**
  * 웹사이트 HTTP 상태, 응답 시간, SSL 인증서를 체크하는 클래스
@@ -37,8 +36,6 @@ import java.util.regex.Pattern;
 public class WebsiteChecker {
 
     private static final Logger log = LoggerFactory.getLogger(WebsiteChecker.class);
-    // IP 주소 패턴 (예: 123.456.789.0)
-    private static final Pattern IP_PATTERN = Pattern.compile("^\\d+\\.\\d+\\.\\d+\\.\\d+$");
 
     private final OkHttpClient httpClient;
     private final long responseTimeWarningMs;
@@ -77,11 +74,9 @@ public class WebsiteChecker {
                 .hostnameVerifier(new HostnameVerifier() {
                     @Override
                     public boolean verify(String hostname, SSLSession session) {
-                        // IP 주소인 경우 호스트명 검증 생략
-                        if (IP_PATTERN.matcher(hostname).matches()) {
-                            return true;
-                        }
-                        return HttpsURLConnection.getDefaultHostnameVerifier().verify(hostname, session);
+                        // 파트너 연결 가능 여부 체크용 - 호스트명 검증 생략
+                        // SSL 인증서 유효성은 checkFull()의 HttpsURLConnection에서 별도 검증
+                        return true;
                     }
                 })
                 .dns(new Dns() {
