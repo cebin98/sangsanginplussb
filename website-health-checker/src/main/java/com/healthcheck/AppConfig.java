@@ -76,7 +76,7 @@ public class AppConfig {
 
     private String getRequired(String key) {
         String value = props.getProperty(key);
-        if (value == null || value.isBlank()) {
+        if (value == null || value.trim().isEmpty()) {
             throw new RuntimeException("필수 설정값 누락: " + key);
         }
         return value.trim();
