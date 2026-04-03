@@ -7,23 +7,29 @@ import okhttp3.Response;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLHandshakeException;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.security.cert.Certificate;
+import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 /**
  * 웹사이트 HTTP 상태, 응답 시간, SSL 인증서를 체크하는 클래스
@@ -31,6 +37,8 @@ import java.util.concurrent.TimeUnit;
 public class WebsiteChecker {
 
     private static final Logger log = LoggerFactory.getLogger(WebsiteChecker.class);
+    // IP 주소 패턴 (예: 123.456.789.0)
+    private static final Pattern IP_PATTERN = Pattern.compile("^\\d+\\.\\d+\\.\\d+\\.\\d+$");
 
     private final OkHttpClient httpClient;
     private final long responseTimeWarningMs;
@@ -46,10 +54,36 @@ public class WebsiteChecker {
 
         final Map<String, String> dnsOverride = config.getDnsOverrideMap();
 
+        // IP 기반 HTTPS 접속 시 SSL 인증서 검증 생략용 TrustManager
+        X509TrustManager trustAllManager = new X509TrustManager() {
+            public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {}
+            public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {}
+            public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+        };
+
+        SSLContext trustAllSslContext;
+        try {
+            trustAllSslContext = SSLContext.getInstance("TLS");
+            trustAllSslContext.init(null, new TrustManager[]{trustAllManager}, null);
+        } catch (Exception e) {
+            throw new RuntimeException("SSL 컨텍스트 초기화 실패", e);
+        }
+
         this.httpClient = new OkHttpClient.Builder()
                 .connectTimeout(config.getHttpConnectTimeoutSeconds(), TimeUnit.SECONDS)
                 .readTimeout(config.getHttpReadTimeoutSeconds(), TimeUnit.SECONDS)
                 .followRedirects(true)
+                .sslSocketFactory(trustAllSslContext.getSocketFactory(), trustAllManager)
+                .hostnameVerifier(new HostnameVerifier() {
+                    @Override
+                    public boolean verify(String hostname, SSLSession session) {
+                        // IP 주소인 경우 호스트명 검증 생략
+                        if (IP_PATTERN.matcher(hostname).matches()) {
+                            return true;
+                        }
+                        return HttpsURLConnection.getDefaultHostnameVerifier().verify(hostname, session);
+                    }
+                })
                 .dns(new Dns() {
                     @Override
                     public List<InetAddress> lookup(String hostname) throws UnknownHostException {
