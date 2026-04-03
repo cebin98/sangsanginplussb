@@ -77,6 +77,20 @@ public class AppConfig {
     }
 
     /**
+     * DNS 오버라이드 맵 반환 (key: 도메인, value: IP)
+     */
+    public Map<String, String> getDnsOverrideMap() {
+        Map<String, String> map = new HashMap<String, String>();
+        for (String key : props.stringPropertyNames()) {
+            if (key.startsWith("dns.")) {
+                String host = key.substring("dns.".length());
+                map.put(host, props.getProperty(key).trim());
+            }
+        }
+        return map;
+    }
+
+    /**
      * 사이트 한글명 매핑 반환 (key: 호스트, value: 한글명)
      */
     public Map<String, String> getSiteNameMap() {
