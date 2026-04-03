@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -25,7 +26,7 @@ public class AppConfig {
             if (in == null) {
                 throw new RuntimeException("config.properties 파일을 찾을 수 없습니다.");
             }
-            props.load(in);
+            props.load(new InputStreamReader(in, "UTF-8"));
             log.info("설정 파일 로드 완료");
         } catch (IOException e) {
             throw new RuntimeException("설정 파일 로드 실패: " + e.getMessage(), e);
