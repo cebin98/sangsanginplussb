@@ -3,8 +3,6 @@ package com.healthcheck;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -51,21 +49,17 @@ public class Main {
 
         Runnable checkTask = () -> {
             log.info("--- 헬스체크 라운드 시작 ---");
-            List<CheckResult> results = new ArrayList<>();
 
             for (String url : websites) {
                 try {
                     CheckResult result = checker.check(url);
-                    results.add(result);
-                    // 개별 알림이 필요한 경우 즉시 전송
+                    // 이상 감지 시에만 텔레그램 알림 전송
                     notifier.notifyIfNeeded(result);
                 } catch (Exception e) {
                     log.error("체크 중 예외 발생 [{}]: {}", url, e.getMessage());
                 }
             }
 
-            // 전체 결과 리포트 전송
-            notifier.sendReport(results);
             log.info("--- 헬스체크 라운드 완료 ---");
         };
 
