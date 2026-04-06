@@ -12,10 +12,17 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
  * 텔레그램 Bot API를 통해 알림 메시지를 전송하는 클래스
+ *
+ * 상태 변화 감지 방식:
+ *   - OK → 이상(WARNING/CRITICAL/DOWN): 이상 감지 알림 전송
+ *   - 이상 → 이상(동일/다른 이상): 추가 알림 없음 (중복 방지)
+ *   - 이상 → OK: 정상화 알림 전송
  */
 public class TelegramNotifier {
 
@@ -27,6 +34,9 @@ public class TelegramNotifier {
     private final String chatId;
     private final OkHttpClient httpClient;
 
+    // 파트너별 직전 상태 저장 (key: "partnerId:inbound" 또는 "partnerId:outbound")
+    private final Map<String, CheckResult.Status> lastStatusMap = new ConcurrentHashMap<String, CheckResult.Status>();
+
     public TelegramNotifier(AppConfig config) {
         this.botToken = config.getTelegramBotToken();
         this.chatId = config.getTelegramChatId();
@@ -37,13 +47,53 @@ public class TelegramNotifier {
     }
 
     /**
-     * 파트너 체크 결과를 텔레그램으로 전송 (이상이 있는 경우에만)
+     * 파트너 체크 결과를 상태 변화 기준으로 텔레그램 전송.
+     * - OK → 이상: 이상 알림
+     * - 이상 지속: 전송 없음
+     * - 이상 → OK: 정상화 알림
      */
     public void notifyIfNeeded(PartnerCheckResult result) {
-        if (!result.isAlertNeeded()) {
-            return;
+        String partnerId = result.getPartner().getId();
+
+        boolean alertSent    = processEndpoint(partnerId, "inbound",  result.getInboundResult(),  result);
+        boolean recoverySent = processEndpoint(partnerId, "outbound", result.getOutboundResult(), result);
+        // 두 엔드포인트 모두 처리됨 (각각 독립적으로 상태 추적)
+    }
+
+    /**
+     * 단일 엔드포인트의 상태 변화를 처리하고 필요 시 알림 전송.
+     * @return 메시지를 전송했으면 true
+     */
+    private boolean processEndpoint(String partnerId, String direction,
+                                    CheckResult current, PartnerCheckResult fullResult) {
+        if (current == null) {
+            return false;
         }
-        sendMessage(buildPartnerAlertMessage(result));
+
+        String key = partnerId + ":" + direction;
+        CheckResult.Status prev = lastStatusMap.getOrDefault(key, CheckResult.Status.OK);
+        CheckResult.Status now  = current.getStatus();
+
+        lastStatusMap.put(key, now);
+
+        boolean wasOk  = (prev == CheckResult.Status.OK);
+        boolean isOk   = (now  == CheckResult.Status.OK);
+
+        if (!wasOk && isOk) {
+            // 이상 → 정상: 정상화 메시지
+            log.info("정상화 감지 [{}][{}]: {} → {}", partnerId, direction, prev, now);
+            sendMessage(buildRecoveryMessage(fullResult, direction, current, prev));
+            return true;
+        } else if (wasOk && !isOk) {
+            // 정상 → 이상: 이상 알림
+            log.warn("이상 감지 [{}][{}]: {} → {}", partnerId, direction, prev, now);
+            sendMessage(buildAlertMessage(fullResult, direction, current));
+            return true;
+        } else {
+            // 정상 유지 or 이상 지속: 전송 없음
+            log.debug("상태 유지 [{}][{}]: {}", partnerId, direction, now);
+            return false;
+        }
     }
 
     /**
@@ -116,40 +166,52 @@ public class TelegramNotifier {
     // private helpers
     // ──────────────────────────────────────────────────
 
-    private String buildPartnerAlertMessage(PartnerCheckResult partnerResult) {
-        CheckResult inbound = partnerResult.getInboundResult();
-        CheckResult outbound = partnerResult.getOutboundResult();
-
-        CheckResult.Status worstStatus = CheckResult.Status.OK;
-        if (inbound != null && inbound.isAlertNeeded())   worstStatus = worse(worstStatus, inbound.getStatus());
-        if (outbound != null && outbound.isAlertNeeded()) worstStatus = worse(worstStatus, outbound.getStatus());
-
+    /** 이상 감지 알림 메시지 (정상 → 이상 전환 시) */
+    private String buildAlertMessage(PartnerCheckResult partnerResult,
+                                     String direction, CheckResult endpoint) {
         StringBuilder sb = new StringBuilder();
-        switch (worstStatus) {
+        switch (endpoint.getStatus()) {
             case DOWN:     sb.append("🚨 *연결 이상 감지!*\n"); break;
             case CRITICAL: sb.append("🔴 *위험 상태 감지!*\n"); break;
             default:       sb.append("⚠️ *경고 상태 감지!*\n"); break;
         }
-
         sb.append("🕐 ").append(LocalDateTime.now().format(FORMATTER)).append("\n");
         sb.append("━━━━━━━━━━━━━━━━━━━━\n");
         sb.append("🏢 *").append(partnerResult.getPartner().getName()).append("*\n");
-
-        if (outbound != null) {
-            sb.append("\n📤 아웃바운드: ").append(statusLine(outbound)).append("\n");
-            sb.append("   ").append(outbound.getUrl()).append("\n");
-            if (outbound.getErrorMessage() != null) {
-                sb.append("   오류: ").append(outbound.getErrorMessage()).append("\n");
-            }
-        }
-        if (inbound != null) {
-            sb.append("\n📥 인바운드: ").append(statusLine(inbound)).append("\n");
-            sb.append("   ").append(inbound.getUrl()).append("\n");
-            if (inbound.getErrorMessage() != null) {
-                sb.append("   오류: ").append(inbound.getErrorMessage()).append("\n");
-            }
+        sb.append(directionLabel(direction)).append(statusLine(endpoint)).append("\n");
+        sb.append("   ").append(endpoint.getUrl()).append("\n");
+        if (endpoint.getErrorMessage() != null) {
+            sb.append("   오류: ").append(endpoint.getErrorMessage()).append("\n");
         }
         return sb.toString();
+    }
+
+    /** 정상화 알림 메시지 (이상 → 정상 전환 시) */
+    private String buildRecoveryMessage(PartnerCheckResult partnerResult,
+                                        String direction, CheckResult endpoint,
+                                        CheckResult.Status prevStatus) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("✅ *정상화 알림*\n");
+        sb.append("🕐 ").append(LocalDateTime.now().format(FORMATTER)).append("\n");
+        sb.append("━━━━━━━━━━━━━━━━━━━━\n");
+        sb.append("🏢 *").append(partnerResult.getPartner().getName()).append("*\n");
+        sb.append(directionLabel(direction)).append(statusLine(endpoint)).append("\n");
+        sb.append("   ").append(endpoint.getUrl()).append("\n");
+        sb.append("   이전 상태: ").append(statusLabel(prevStatus)).append("\n");
+        return sb.toString();
+    }
+
+    private String directionLabel(String direction) {
+        return "inbound".equals(direction) ? "\n📥 인바운드: " : "\n📤 아웃바운드: ";
+    }
+
+    private String statusLabel(CheckResult.Status status) {
+        switch (status) {
+            case WARNING:  return "⚠️ 경고";
+            case CRITICAL: return "🔴 위험";
+            case DOWN:     return "❌ 다운";
+            default:       return "✅ 정상";
+        }
     }
 
     /** 표 안 상태 셀 (4자 고정폭, 코드블록용) */
@@ -174,15 +236,6 @@ public class TelegramNotifier {
             case DOWN:     return "❌ 다운";
             default:       return "❓ 알 수 없음";
         }
-    }
-
-    private CheckResult.Status worse(CheckResult.Status a, CheckResult.Status b) {
-        int[] order = new int[CheckResult.Status.values().length];
-        order[CheckResult.Status.OK.ordinal()]       = 0;
-        order[CheckResult.Status.WARNING.ordinal()]  = 1;
-        order[CheckResult.Status.CRITICAL.ordinal()] = 2;
-        order[CheckResult.Status.DOWN.ordinal()]     = 3;
-        return order[a.ordinal()] >= order[b.ordinal()] ? a : b;
     }
 
     /** 자사 사이트 URL에서 호스트명 추출 */
